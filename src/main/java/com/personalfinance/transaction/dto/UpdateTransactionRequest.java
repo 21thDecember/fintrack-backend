@@ -36,6 +36,13 @@ public class UpdateTransactionRequest {
 
     private ClassificationStatus classificationStatus;
 
+    // Danh sách phân bổ người vay nợ (nếu có, khi chi tiêu chia tiền bạn bè hoặc cho vay nhiều người)
+    private List<com.personalfinance.debt.dto.DebtAllocationItemRequest> debtAllocations;
+
+    // Người liên quan & ngày đến hạn (dùng cho LOAN_GIVEN hoặc BORROW_RECEIVED)
+    private UUID personId;
+    private java.time.LocalDate dueDate;
+
     private UUID debtId;
     private List<UUID> debtIds;
 }

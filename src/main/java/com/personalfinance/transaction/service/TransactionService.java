@@ -45,6 +45,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -141,63 +142,10 @@ public class TransactionService {
 
         Transaction savedTx = transactionRepository.save(transaction);
 
-        // Xử lý chia tiền / phân bổ nợ nếu có (khi người dùng trả tiền giùm bạn bè)
+        // Xử lý ghi nợ sổ nợ: Chi tiêu chia tiền (EXPENSE), Cho vay (LOAN_GIVEN), Đi vay (BORROW_RECEIVED)
         List<DebtAllocationResponse> allocationResponses = new ArrayList<>();
-        if (request.getDebtAllocations() != null && !request.getDebtAllocations().isEmpty()) {
-            if (request.getType() != TransactionType.EXPENSE && request.getType() != TransactionType.LOAN_GIVEN) {
-                throw new BusinessException("Chỉ giao dịch chi tiêu (EXPENSE) hoặc cho vay (LOAN_GIVEN) mới được phân bổ nợ");
-            }
-
-            long totalAllocated = request.getDebtAllocations().stream()
-                    .mapToLong(DebtAllocationItemRequest::getAllocatedAmount)
-                    .sum();
-
-            if (totalAllocated > request.getAmount()) {
-                throw new BusinessException("Tổng số tiền phân bổ (" + totalAllocated + ") không được vượt quá số tiền giao dịch (" + request.getAmount() + ")");
-            }
-
-            for (DebtAllocationItemRequest allocReq : request.getDebtAllocations()) {
-                Person person = personRepository.findById(allocReq.getPersonId())
-                        .orElseThrow(() -> new ResourceNotFoundException("Người", allocReq.getPersonId()));
-
-                // Tạo Debt dạng RECEIVABLE (người đó nợ lại mình)
-                Debt debt = Debt.builder()
-                        .personId(person.getId())
-                        .type(DebtType.RECEIVABLE)
-                        .originType(DebtOriginType.TRANSACTION)
-                        .originTransactionId(savedTx.getId())
-                        .description(allocReq.getNote() != null && !allocReq.getNote().trim().isEmpty()
-                                ? allocReq.getNote().trim()
-                                : "Chi hộ: " + (request.getDescription() != null ? request.getDescription() : "Khoản chi"))
-                        .principalAmount(allocReq.getAllocatedAmount())
-                        .dueDate(allocReq.getDueDate())
-                        .status(DebtStatus.OPEN)
-                        .build();
-
-                Debt savedDebt = debtRepository.save(debt);
-
-                // Tạo bản ghi DebtAllocation
-                DebtAllocation allocation = DebtAllocation.builder()
-                        .transactionId(savedTx.getId())
-                        .debtId(savedDebt.getId())
-                        .personId(person.getId())
-                        .allocatedAmount(allocReq.getAllocatedAmount())
-                        .note(allocReq.getNote())
-                        .build();
-
-                DebtAllocation savedAlloc = debtAllocationRepository.save(allocation);
-
-                allocationResponses.add(DebtAllocationResponse.builder()
-                        .id(savedAlloc.getId())
-                        .transactionId(savedAlloc.getTransactionId())
-                        .debtId(savedAlloc.getDebtId())
-                        .personId(person.getId())
-                        .personName(person.getName())
-                        .allocatedAmount(savedAlloc.getAllocatedAmount())
-                        .note(savedAlloc.getNote())
-                        .createdAt(savedAlloc.getCreatedAt())
-                        .build());
-            }
+        if (savedTx.getType() == TransactionType.EXPENSE || savedTx.getType() == TransactionType.LOAN_GIVEN || savedTx.getType() == TransactionType.BORROW_RECEIVED) {
+            allocationResponses = applyDebtAllocations(savedTx, request.getDebtAllocations(), request.getPersonId(), request.getDueDate());
         }
 
         List<UUID> linkedDebtIds = new ArrayList<>();
@@ -387,6 +335,22 @@ public class TransactionService {
                     });
                 }
                 applyDebtPayments(tx, request.getDebtIds(), request.getDebtId());
+            }
+        }
+
+        // Tự động liên kết và phân bổ ghi nợ cho EXPENSE, LOAN_GIVEN, BORROW_RECEIVED
+        if (tx.getType() == TransactionType.EXPENSE || tx.getType() == TransactionType.LOAN_GIVEN || tx.getType() == TransactionType.BORROW_RECEIVED) {
+            if (request.getDebtAllocations() != null || request.getPersonId() != null) {
+                List<DebtAllocation> existingAllocations = debtAllocationRepository.findAllByTransactionId(tx.getId());
+                for (DebtAllocation a : existingAllocations) {
+                    debtRepository.findById(a.getDebtId()).ifPresent(d -> {
+                        if (d.getOriginType() == DebtOriginType.TRANSACTION && d.getStatus() == DebtStatus.OPEN) {
+                            debtRepository.delete(d);
+                        }
+                    });
+                    debtAllocationRepository.delete(a);
+                }
+                applyDebtAllocations(tx, request.getDebtAllocations(), request.getPersonId(), request.getDueDate());
             }
         }
 
@@ -602,7 +566,135 @@ public class TransactionService {
                 .updatedAt(tx.getUpdatedAt())
                 .debtAllocations(allocations)
                 .debtIds(debtIds != null ? debtIds : List.of())
+                .personId(allocations != null && !allocations.isEmpty() ? allocations.get(0).getPersonId() : null)
+                .personName(allocations != null && !allocations.isEmpty() ? allocations.get(0).getPersonName() : null)
                 .build();
+    }
+
+    private List<DebtAllocationResponse> applyDebtAllocations(
+            Transaction tx,
+            List<DebtAllocationItemRequest> allocations,
+            UUID personId,
+            LocalDate dueDate) {
+
+        List<DebtAllocationResponse> responses = new ArrayList<>();
+
+        if (allocations != null && !allocations.isEmpty()) {
+            long totalAllocated = allocations.stream()
+                    .mapToLong(DebtAllocationItemRequest::getAllocatedAmount)
+                    .sum();
+
+            if (totalAllocated > tx.getAmount()) {
+                throw new BusinessException("Tổng số tiền phân bổ (" + totalAllocated + ") không được vượt quá số tiền giao dịch (" + tx.getAmount() + ")");
+            }
+
+            DebtType debtType = (tx.getType() == TransactionType.BORROW_RECEIVED)
+                    ? DebtType.PAYABLE
+                    : DebtType.RECEIVABLE;
+
+            String defaultPrefix = (tx.getType() == TransactionType.LOAN_GIVEN)
+                    ? "Cho vay: "
+                    : (tx.getType() == TransactionType.BORROW_RECEIVED ? "Đi vay: " : "Chi hộ: ");
+
+            for (DebtAllocationItemRequest allocReq : allocations) {
+                Person person = personRepository.findById(allocReq.getPersonId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Người", allocReq.getPersonId()));
+
+                String desc = (allocReq.getNote() != null && !allocReq.getNote().trim().isEmpty())
+                        ? allocReq.getNote().trim()
+                        : defaultPrefix + (tx.getDescription() != null ? tx.getDescription() : "Khoản tiền");
+
+                Debt debt = Debt.builder()
+                        .personId(person.getId())
+                        .type(debtType)
+                        .originType(DebtOriginType.TRANSACTION)
+                        .originTransactionId(tx.getId())
+                        .description(desc)
+                        .principalAmount(allocReq.getAllocatedAmount())
+                        .dueDate(allocReq.getDueDate() != null ? allocReq.getDueDate() : dueDate)
+                        .status(DebtStatus.OPEN)
+                        .build();
+
+                Debt savedDebt = debtRepository.save(debt);
+
+                DebtAllocation allocation = DebtAllocation.builder()
+                        .transactionId(tx.getId())
+                        .debtId(savedDebt.getId())
+                        .personId(person.getId())
+                        .allocatedAmount(allocReq.getAllocatedAmount())
+                        .note(allocReq.getNote())
+                        .build();
+
+                DebtAllocation savedAlloc = debtAllocationRepository.save(allocation);
+
+                responses.add(DebtAllocationResponse.builder()
+                        .id(savedAlloc.getId())
+                        .transactionId(savedAlloc.getTransactionId())
+                        .debtId(savedAlloc.getDebtId())
+                        .personId(person.getId())
+                        .personName(person.getName())
+                        .allocatedAmount(savedAlloc.getAllocatedAmount())
+                        .note(savedAlloc.getNote())
+                        .createdAt(savedAlloc.getCreatedAt())
+                        .build());
+            }
+        } else if (personId != null) {
+            Person person = personRepository.findById(personId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Người", personId));
+
+            DebtType debtType;
+            String desc;
+            if (tx.getType() == TransactionType.LOAN_GIVEN) {
+                debtType = DebtType.RECEIVABLE;
+                desc = (tx.getDescription() != null && !tx.getDescription().trim().isEmpty())
+                        ? tx.getDescription().trim()
+                        : "Cho " + person.getName() + " vay tiền";
+            } else if (tx.getType() == TransactionType.BORROW_RECEIVED) {
+                debtType = DebtType.PAYABLE;
+                desc = (tx.getDescription() != null && !tx.getDescription().trim().isEmpty())
+                        ? tx.getDescription().trim()
+                        : "Vay tiền từ " + person.getName();
+            } else {
+                debtType = DebtType.RECEIVABLE;
+                desc = tx.getDescription() != null ? tx.getDescription() : "Khoản nợ";
+            }
+
+            Debt debt = Debt.builder()
+                    .personId(person.getId())
+                    .type(debtType)
+                    .originType(DebtOriginType.TRANSACTION)
+                    .originTransactionId(tx.getId())
+                    .description(desc)
+                    .principalAmount(tx.getAmount())
+                    .dueDate(dueDate)
+                    .status(DebtStatus.OPEN)
+                    .build();
+
+            Debt savedDebt = debtRepository.save(debt);
+
+            DebtAllocation allocation = DebtAllocation.builder()
+                    .transactionId(tx.getId())
+                    .debtId(savedDebt.getId())
+                    .personId(person.getId())
+                    .allocatedAmount(tx.getAmount())
+                    .note(desc)
+                    .build();
+
+            DebtAllocation savedAlloc = debtAllocationRepository.save(allocation);
+
+            responses.add(DebtAllocationResponse.builder()
+                    .id(savedAlloc.getId())
+                    .transactionId(savedAlloc.getTransactionId())
+                    .debtId(savedAlloc.getDebtId())
+                    .personId(person.getId())
+                    .personName(person.getName())
+                    .allocatedAmount(savedAlloc.getAllocatedAmount())
+                    .note(savedAlloc.getNote())
+                    .createdAt(savedAlloc.getCreatedAt())
+                    .build());
+        }
+
+        return responses;
     }
 
     private void applyDebtPayments(Transaction tx, List<UUID> debtIds, UUID singleDebtId) {

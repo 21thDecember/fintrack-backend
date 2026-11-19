@@ -44,8 +44,12 @@ public class CreateTransactionRequest {
 
     private OffsetDateTime transactionDate;
 
-    // Danh sách phân bổ người vay nợ (nếu có, khi chi tiêu chia tiền bạn bè)
+    // Danh sách phân bổ người vay nợ (nếu có, khi chi tiêu chia tiền bạn bè hoặc cho vay nhiều người)
     private List<DebtAllocationItemRequest> debtAllocations;
+
+    // Người liên quan & ngày đến hạn (dùng cho LOAN_GIVEN hoặc BORROW_RECEIVED)
+    private UUID personId;
+    private java.time.LocalDate dueDate;
 
     // Khoản nợ liên kết thanh toán (nếu là DEBT_COLLECTION hoặc DEBT_REPAYMENT)
     private UUID debtId;

@@ -45,4 +45,7 @@ public class TransactionResponse {
     private OffsetDateTime updatedAt;
     private List<DebtAllocationResponse> debtAllocations;
     private List<UUID> debtIds;
+    private UUID personId;
+    private String personName;
+    private java.time.LocalDate dueDate;
 }
