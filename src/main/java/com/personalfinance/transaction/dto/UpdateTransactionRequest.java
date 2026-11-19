@@ -34,4 +34,6 @@ public class UpdateTransactionRequest {
     private OffsetDateTime transactionDate;
 
     private ClassificationStatus classificationStatus;
+
+    private UUID debtId;
 }

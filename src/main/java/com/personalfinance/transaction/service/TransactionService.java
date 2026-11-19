@@ -12,9 +12,11 @@ import com.personalfinance.debt.dto.DebtAllocationResponse;
 import com.personalfinance.debt.entity.Debt;
 import com.personalfinance.debt.entity.DebtAllocation;
 import com.personalfinance.debt.entity.DebtOriginType;
+import com.personalfinance.debt.entity.DebtPayment;
 import com.personalfinance.debt.entity.DebtStatus;
 import com.personalfinance.debt.entity.DebtType;
 import com.personalfinance.debt.repository.DebtAllocationRepository;
+import com.personalfinance.debt.repository.DebtPaymentRepository;
 import com.personalfinance.debt.repository.DebtRepository;
 import com.personalfinance.person.entity.Person;
 import com.personalfinance.person.repository.PersonRepository;
@@ -63,6 +65,7 @@ public class TransactionService {
     private final PersonRepository personRepository;
     private final DebtRepository debtRepository;
     private final DebtAllocationRepository debtAllocationRepository;
+    private final DebtPaymentRepository debtPaymentRepository;
 
     /**
      * Xác định chiều dòng tiền (IN/OUT) dựa trên loại giao dịch để đảm bảo tính nhất quán
@@ -330,12 +333,18 @@ public class TransactionService {
             if (request.getTransactionDate() != null) {
                 tx.setTransactionDate(request.getTransactionDate());
             }
-            if (request.getType() != null) {
-                tx.setType(request.getType());
-                tx.setDirection(resolveDirection(request.getType(), request.getDirection()));
-            } else if (request.getDirection() != null) {
-                tx.setDirection(resolveDirection(tx.getType(), request.getDirection()));
+        }
+
+        // Cập nhật loại giao dịch (type) cho cả MANUAL và BANK (với điều kiện không làm đổi chiều tiền IN/OUT của sao kê ngân hàng)
+        if (request.getType() != null && !request.getType().equals(tx.getType())) {
+            TransactionDirection newDirection = resolveDirection(request.getType(), request.getDirection());
+            if (tx.getSource() == TransactionSource.BANK && newDirection != tx.getDirection()) {
+                throw new BusinessException("Không thể đổi loại giao dịch làm thay đổi chiều dòng tiền (Thu/Chi) của sao kê ngân hàng");
             }
+            tx.setType(request.getType());
+            tx.setDirection(newDirection);
+        } else if (tx.getSource() != TransactionSource.BANK && request.getDirection() != null) {
+            tx.setDirection(resolveDirection(tx.getType(), request.getDirection()));
         }
 
         // Cập nhật danh mục
@@ -344,10 +353,36 @@ public class TransactionService {
                     .orElseThrow(() -> new ResourceNotFoundException("Danh mục", request.getCategoryId()));
             tx.setCategoryId(cat.getId());
             tx.setClassificationStatus(ClassificationStatus.CLASSIFIED);
+        } else if (request.getType() != null && request.getType() != TransactionType.INCOME && request.getType() != TransactionType.EXPENSE) {
+            // Các loại giao dịch nợ (DEBT_COLLECTION, DEBT_REPAYMENT,...) hoặc chuyển khoản không bắt buộc danh mục
+            tx.setCategoryId(null);
+            tx.setClassificationStatus(ClassificationStatus.CLASSIFIED);
         } else if (request.getClassificationStatus() != null) {
             tx.setClassificationStatus(request.getClassificationStatus());
             if (request.getClassificationStatus() == ClassificationStatus.UNCLASSIFIED) {
                 tx.setCategoryId(null);
+            }
+        }
+
+        // Tự động liên kết và cập nhật sổ nợ nếu người dùng chọn khoản nợ liên quan
+        if (request.getDebtId() != null && (tx.getType() == TransactionType.DEBT_COLLECTION || tx.getType() == TransactionType.DEBT_REPAYMENT)) {
+            List<DebtPayment> existingPayments = debtPaymentRepository.findAllByTransactionId(tx.getId());
+            if (existingPayments.isEmpty()) {
+                debtRepository.findById(request.getDebtId()).ifPresent(debt -> {
+                    DebtPayment payment = DebtPayment.builder()
+                            .debtId(debt.getId())
+                            .transactionId(tx.getId())
+                            .amount(tx.getAmount())
+                            .paymentDate(tx.getTransactionDate())
+                            .build();
+                    debtPaymentRepository.save(payment);
+
+                    Long totalPaid = debtPaymentRepository.calculateTotalPaidByDebtId(debt.getId());
+                    long remaining = debt.getPrincipalAmount() - (totalPaid != null ? totalPaid : 0L);
+                    debt.setStatus(remaining <= 0 ? DebtStatus.PAID : DebtStatus.PARTIAL);
+                    debtRepository.save(debt);
+                    log.info("Đã liên kết giao dịch {} với khoản nợ {}, nợ còn lại: {}", tx.getId(), debt.getId(), remaining);
+                });
             }
         }
 
