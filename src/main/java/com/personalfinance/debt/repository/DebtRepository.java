@@ -24,6 +24,8 @@ public interface DebtRepository extends JpaRepository<Debt, UUID>, JpaSpecificat
 
     Page<Debt> findAllByStatusIn(List<DebtStatus> statuses, Pageable pageable);
 
+    List<Debt> findAllByStatusIn(List<DebtStatus> statuses);
+
     long countByStatusIn(List<DebtStatus> statuses);
 
     @Query(value = """

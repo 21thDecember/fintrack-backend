@@ -8,6 +8,7 @@ import com.personalfinance.debt.dto.CreateDebtRequest;
 import com.personalfinance.debt.dto.DebtPaymentRequest;
 import com.personalfinance.debt.dto.DebtResponse;
 import com.personalfinance.debt.dto.DebtSummaryResponse;
+import com.personalfinance.debt.dto.PersonDebtSummaryResponse;
 import com.personalfinance.debt.dto.UpdateDebtRequest;
 import com.personalfinance.debt.entity.DebtStatus;
 import com.personalfinance.debt.entity.DebtType;
@@ -15,6 +16,8 @@ import com.personalfinance.debt.service.DebtService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+
+import java.util.List;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -48,6 +51,12 @@ public class DebtController {
     public ApiResponse<DebtSummaryResponse> getDebtSummary() {
         DebtSummaryResponse summary = debtService.getDebtSummary();
         return ApiResponse.success(summary);
+    }
+
+    @GetMapping("/by-person")
+    public ApiResponse<List<PersonDebtSummaryResponse>> getDebtSummaryByPerson() {
+        List<PersonDebtSummaryResponse> result = debtService.getDebtSummaryByPerson();
+        return ApiResponse.success(result);
     }
 
     @GetMapping("/{id}")

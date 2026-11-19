@@ -200,10 +200,19 @@ public class TransactionService {
             }
         }
 
+        List<UUID> linkedDebtIds = new ArrayList<>();
+        if (savedTx.getType() == TransactionType.DEBT_COLLECTION || savedTx.getType() == TransactionType.DEBT_REPAYMENT) {
+            applyDebtPayments(savedTx, request.getDebtIds(), request.getDebtId());
+            linkedDebtIds = debtPaymentRepository.findAllByTransactionId(savedTx.getId()).stream()
+                    .map(DebtPayment::getDebtId)
+                    .distinct()
+                    .toList();
+        }
+
         log.info("Đã tạo giao dịch: ID={}, Loại={}, Số tiền={}, Hướng={}",
                 savedTx.getId(), savedTx.getType(), savedTx.getAmount(), savedTx.getDirection());
 
-        return toResponse(savedTx, account, category, allocationResponses);
+        return toResponse(savedTx, account, category, allocationResponses, linkedDebtIds);
     }
 
     /**
@@ -364,25 +373,20 @@ public class TransactionService {
             }
         }
 
-        // Tự động liên kết và cập nhật sổ nợ nếu người dùng chọn khoản nợ liên quan
-        if (request.getDebtId() != null && (tx.getType() == TransactionType.DEBT_COLLECTION || tx.getType() == TransactionType.DEBT_REPAYMENT)) {
-            List<DebtPayment> existingPayments = debtPaymentRepository.findAllByTransactionId(tx.getId());
-            if (existingPayments.isEmpty()) {
-                debtRepository.findById(request.getDebtId()).ifPresent(debt -> {
-                    DebtPayment payment = DebtPayment.builder()
-                            .debtId(debt.getId())
-                            .transactionId(tx.getId())
-                            .amount(tx.getAmount())
-                            .paymentDate(tx.getTransactionDate())
-                            .build();
-                    debtPaymentRepository.save(payment);
-
-                    Long totalPaid = debtPaymentRepository.calculateTotalPaidByDebtId(debt.getId());
-                    long remaining = debt.getPrincipalAmount() - (totalPaid != null ? totalPaid : 0L);
-                    debt.setStatus(remaining <= 0 ? DebtStatus.PAID : DebtStatus.PARTIAL);
-                    debtRepository.save(debt);
-                    log.info("Đã liên kết giao dịch {} với khoản nợ {}, nợ còn lại: {}", tx.getId(), debt.getId(), remaining);
-                });
+        // Tự động liên kết và cấn trừ sổ nợ cho một hoặc nhiều khoản nợ được chọn
+        if (tx.getType() == TransactionType.DEBT_COLLECTION || tx.getType() == TransactionType.DEBT_REPAYMENT) {
+            if (request.getDebtIds() != null || request.getDebtId() != null) {
+                List<DebtPayment> existingPayments = debtPaymentRepository.findAllByTransactionId(tx.getId());
+                for (DebtPayment p : existingPayments) {
+                    debtPaymentRepository.delete(p);
+                    debtRepository.findById(p.getDebtId()).ifPresent(d -> {
+                        Long paid = debtPaymentRepository.calculateTotalPaidByDebtId(d.getId());
+                        long rem = d.getPrincipalAmount() - (paid != null ? paid : 0L);
+                        d.setStatus(rem <= 0 ? DebtStatus.PAID : (paid != null && paid > 0 ? DebtStatus.PARTIAL : DebtStatus.OPEN));
+                        debtRepository.save(d);
+                    });
+                }
+                applyDebtPayments(tx, request.getDebtIds(), request.getDebtId());
             }
         }
 
@@ -503,8 +507,12 @@ public class TransactionService {
         Account account = accountRepository.findById(tx.getAccountId()).orElse(null);
         Category category = tx.getCategoryId() != null ? categoryRepository.findById(tx.getCategoryId()).orElse(null) : null;
         List<DebtAllocationResponse> allocations = getDebtAllocationResponses(tx.getId());
+        List<UUID> debtIds = debtPaymentRepository.findAllByTransactionId(tx.getId()).stream()
+                .map(DebtPayment::getDebtId)
+                .distinct()
+                .toList();
 
-        return toResponse(tx, account, category, allocations);
+        return toResponse(tx, account, category, allocations, debtIds);
     }
 
     private List<DebtAllocationResponse> getDebtAllocationResponses(UUID transactionId) {
@@ -539,10 +547,18 @@ public class TransactionService {
         Map<UUID, Category> categoryMap = categoryRepository.findAllById(categoryIds).stream()
                 .collect(Collectors.toMap(Category::getId, c -> c));
 
+        List<UUID> txIds = transactions.stream().map(Transaction::getId).toList();
+        Map<UUID, List<UUID>> txDebtIdsMap = debtPaymentRepository.findAllByTransactionIdIn(txIds).stream()
+                .collect(Collectors.groupingBy(
+                        DebtPayment::getTransactionId,
+                        Collectors.mapping(DebtPayment::getDebtId, Collectors.toList())
+                ));
+
         return transactions.stream().map(tx -> {
             Account acc = accountMap.get(tx.getAccountId());
             Category cat = tx.getCategoryId() != null ? categoryMap.get(tx.getCategoryId()) : null;
-            return toResponse(tx, acc, cat, List.of());
+            List<UUID> debtIds = txDebtIdsMap.getOrDefault(tx.getId(), List.of());
+            return toResponse(tx, acc, cat, List.of(), debtIds);
         }).toList();
     }
 
@@ -551,6 +567,15 @@ public class TransactionService {
             Account account,
             Category category,
             List<DebtAllocationResponse> allocations) {
+        return toResponse(tx, account, category, allocations, List.of());
+    }
+
+    private TransactionResponse toResponse(
+            Transaction tx,
+            Account account,
+            Category category,
+            List<DebtAllocationResponse> allocations,
+            List<UUID> debtIds) {
 
         return TransactionResponse.builder()
                 .id(tx.getId())
@@ -576,6 +601,76 @@ public class TransactionService {
                 .createdAt(tx.getCreatedAt())
                 .updatedAt(tx.getUpdatedAt())
                 .debtAllocations(allocations)
+                .debtIds(debtIds != null ? debtIds : List.of())
                 .build();
+    }
+
+    private void applyDebtPayments(Transaction tx, List<UUID> debtIds, UUID singleDebtId) {
+        List<UUID> targetDebtIds = new ArrayList<>();
+        if (debtIds != null && !debtIds.isEmpty()) {
+            for (UUID dId : debtIds) {
+                if (dId != null && !targetDebtIds.contains(dId)) {
+                    targetDebtIds.add(dId);
+                }
+            }
+        } else if (singleDebtId != null) {
+            targetDebtIds.add(singleDebtId);
+        }
+
+        if (targetDebtIds.isEmpty()) {
+            return;
+        }
+
+        long remainingTxAmount = tx.getAmount() != null ? tx.getAmount() : 0L;
+        if (remainingTxAmount <= 0) {
+            return;
+        }
+
+        for (int i = 0; i < targetDebtIds.size(); i++) {
+            UUID debtId = targetDebtIds.get(i);
+            boolean isLast = (i == targetDebtIds.size() - 1);
+
+            Debt debt = debtRepository.findById(debtId).orElse(null);
+            if (debt == null || debt.getStatus() == DebtStatus.CANCELLED) {
+                continue;
+            }
+
+            Long paidSoFar = debtPaymentRepository.calculateTotalPaidByDebtId(debt.getId());
+            long debtRemaining = Math.max(0L, debt.getPrincipalAmount() - (paidSoFar != null ? paidSoFar : 0L));
+
+            long payAmount;
+            if (isLast) {
+                payAmount = remainingTxAmount;
+            } else {
+                payAmount = Math.min(remainingTxAmount, debtRemaining);
+            }
+
+            if (payAmount <= 0) {
+                continue;
+            }
+
+            DebtPayment payment = DebtPayment.builder()
+                    .debtId(debt.getId())
+                    .transactionId(tx.getId())
+                    .amount(payAmount)
+                    .paymentDate(tx.getTransactionDate() != null ? tx.getTransactionDate() : OffsetDateTime.now(ZoneOffset.UTC))
+                    .note("Thanh toán liên kết giao dịch: " + (tx.getDescription() != null ? tx.getDescription() : ""))
+                    .build();
+            debtPaymentRepository.save(payment);
+
+            remainingTxAmount -= payAmount;
+
+            long totalPaidAfter = (paidSoFar != null ? paidSoFar : 0L) + payAmount;
+            if (totalPaidAfter >= debt.getPrincipalAmount()) {
+                debt.setStatus(DebtStatus.PAID);
+            } else if (totalPaidAfter > 0) {
+                debt.setStatus(DebtStatus.PARTIAL);
+            }
+            debtRepository.save(debt);
+
+            if (remainingTxAmount <= 0) {
+                break;
+            }
+        }
     }
 }

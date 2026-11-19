@@ -44,4 +44,5 @@ public class TransactionResponse {
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
     private List<DebtAllocationResponse> debtAllocations;
+    private List<UUID> debtIds;
 }

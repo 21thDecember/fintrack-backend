@@ -14,6 +14,7 @@ import com.personalfinance.debt.dto.DebtPaymentRequest;
 import com.personalfinance.debt.dto.DebtPaymentResponse;
 import com.personalfinance.debt.dto.DebtResponse;
 import com.personalfinance.debt.dto.DebtSummaryResponse;
+import com.personalfinance.debt.dto.PersonDebtSummaryResponse;
 import com.personalfinance.debt.dto.UpdateDebtRequest;
 import com.personalfinance.debt.entity.Debt;
 import com.personalfinance.debt.entity.DebtAllocation;
@@ -334,6 +335,52 @@ public class DebtService {
     }
 
     @Transactional(readOnly = true)
+    public List<PersonDebtSummaryResponse> getDebtSummaryByPerson() {
+        List<Person> persons = personRepository.findAll();
+        List<Debt> activeDebts = debtRepository.findAllByStatusIn(List.of(DebtStatus.OPEN, DebtStatus.PARTIAL));
+
+        Map<UUID, List<Debt>> debtsByPerson = activeDebts.stream()
+                .collect(Collectors.groupingBy(Debt::getPersonId));
+
+        List<PersonDebtSummaryResponse> result = new ArrayList<>();
+
+        for (Person person : persons) {
+            List<Debt> personDebts = debtsByPerson.getOrDefault(person.getId(), List.of());
+            long totalRec = 0L;
+            long totalPay = 0L;
+
+            for (Debt d : personDebts) {
+                Long paid = debtPaymentRepository.calculateTotalPaidByDebtId(d.getId());
+                long remaining = Math.max(0L, d.getPrincipalAmount() - (paid != null ? paid : 0L));
+                if (d.getType() == DebtType.RECEIVABLE) {
+                    totalRec += remaining;
+                } else {
+                    totalPay += remaining;
+                }
+            }
+
+            if (!personDebts.isEmpty() || totalRec > 0 || totalPay > 0) {
+                result.add(PersonDebtSummaryResponse.builder()
+                        .personId(person.getId())
+                        .personName(person.getName())
+                        .phone(person.getPhone())
+                        .totalReceivable(totalRec)
+                        .totalPayable(totalPay)
+                        .netAmount(totalRec - totalPay)
+                        .openDebtsCount(personDebts.size())
+                        .build());
+            }
+        }
+
+        result.sort((a, b) -> Long.compare(
+                Math.abs(b.getNetAmount()),
+                Math.abs(a.getNetAmount())
+        ));
+
+        return result;
+    }
+
+    @Transactional(readOnly = true)
     public DebtSummaryResponse getDebtSummary() {
         Long totalReceivables = debtRepository.calculateTotalRemainingByType(DebtType.RECEIVABLE.name());
         Long totalPayables = debtRepository.calculateTotalRemainingByType(DebtType.PAYABLE.name());
@@ -346,12 +393,15 @@ public class DebtService {
         long rec = totalReceivables != null ? totalReceivables : 0L;
         long pay = totalPayables != null ? totalPayables : 0L;
 
+        List<PersonDebtSummaryResponse> personSummaries = getDebtSummaryByPerson();
+
         return DebtSummaryResponse.builder()
                 .totalReceivables(rec)
                 .totalPayables(pay)
                 .netDebt(rec - pay)
                 .openReceivablesCount(openReceivables)
                 .openPayablesCount(openPayables)
+                .personSummaries(personSummaries)
                 .build();
     }
 

@@ -16,6 +16,8 @@ public interface DebtPaymentRepository extends JpaRepository<DebtPayment, UUID> 
 
     List<DebtPayment> findAllByTransactionId(UUID transactionId);
 
+    List<DebtPayment> findAllByTransactionIdIn(List<UUID> transactionIds);
+
     @Query(value = "SELECT COALESCE(SUM(amount), 0) FROM debt_payments WHERE debt_id = :debtId", nativeQuery = true)
     Long calculateTotalPaidByDebtId(@Param("debtId") UUID debtId);
 }

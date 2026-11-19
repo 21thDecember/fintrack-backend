@@ -46,4 +46,8 @@ public class CreateTransactionRequest {
 
     // Danh sách phân bổ người vay nợ (nếu có, khi chi tiêu chia tiền bạn bè)
     private List<DebtAllocationItemRequest> debtAllocations;
+
+    // Khoản nợ liên kết thanh toán (nếu là DEBT_COLLECTION hoặc DEBT_REPAYMENT)
+    private UUID debtId;
+    private List<UUID> debtIds;
 }
