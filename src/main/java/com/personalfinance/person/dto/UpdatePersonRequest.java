@@ -1,0 +1,21 @@
+package com.personalfinance.person.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class UpdatePersonRequest {
+
+    @NotBlank(message = "Tên người không được để trống")
+    private String name;
+
+    private String phone;
+
+    private String note;
+}
