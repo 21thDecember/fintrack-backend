@@ -411,6 +411,37 @@ public class TransactionService {
     }
 
     /**
+     * Xóa vĩnh viễn giao dịch khỏi hệ thống
+     */
+    @Transactional
+    public void deleteTransaction(UUID id) {
+        Transaction tx = transactionRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Giao dịch", id));
+
+        // Nếu là giao dịch chuyển khoản kép (TRANSFER), xóa luôn giao dịch liên kết
+        if (tx.getTransferGroupId() != null) {
+            List<Transaction> groupTxs = transactionRepository.findAllByTransferGroupId(tx.getTransferGroupId());
+            for (Transaction relatedTx : groupTxs) {
+                if (!relatedTx.getId().equals(tx.getId())) {
+                    List<DebtAllocation> relatedAllocations = debtAllocationRepository.findAllByTransactionId(relatedTx.getId());
+                    if (!relatedAllocations.isEmpty()) {
+                        debtAllocationRepository.deleteAll(relatedAllocations);
+                    }
+                    transactionRepository.delete(relatedTx);
+                }
+            }
+        }
+
+        List<DebtAllocation> allocations = debtAllocationRepository.findAllByTransactionId(tx.getId());
+        if (!allocations.isEmpty()) {
+            debtAllocationRepository.deleteAll(allocations);
+        }
+
+        transactionRepository.delete(tx);
+        log.info("Đã xóa hoàn toàn giao dịch ID: {}", id);
+    }
+
+    /**
      * Lọc và phân trang danh sách giao dịch
      */
     @Transactional(readOnly = true)

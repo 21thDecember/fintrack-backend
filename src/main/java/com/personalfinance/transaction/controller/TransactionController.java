@@ -12,6 +12,7 @@ import com.personalfinance.transaction.dto.VoidTransactionRequest;
 import com.personalfinance.transaction.service.TransactionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -71,5 +72,11 @@ public class TransactionController {
             @RequestBody(required = false) VoidTransactionRequest request) {
         TransactionResponse response = transactionService.voidTransaction(id, request);
         return ApiResponse.success("Hủy giao dịch thành công", response);
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> deleteTransaction(@PathVariable UUID id) {
+        transactionService.deleteTransaction(id);
+        return ApiResponse.success("Xóa giao dịch thành công", null);
     }
 }
