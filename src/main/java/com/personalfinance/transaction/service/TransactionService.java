@@ -268,7 +268,7 @@ public class TransactionService {
             if (request.getAmount() != null && !request.getAmount().equals(tx.getAmount())) {
                 throw new BusinessException("Không được phép sửa đổi số tiền của giao dịch từ ngân hàng");
             }
-            if (request.getTransactionDate() != null && !request.getTransactionDate().equals(tx.getTransactionDate())) {
+            if (request.getTransactionDate() != null && !request.getTransactionDate().isEqual(tx.getTransactionDate())) {
                 throw new BusinessException("Không được phép sửa đổi ngày giao dịch từ ngân hàng");
             }
             if (request.getAccountId() != null && !request.getAccountId().equals(tx.getAccountId())) {
@@ -363,6 +363,29 @@ public class TransactionService {
 
         Transaction updated = transactionRepository.save(tx);
         log.info("Đã cập nhật giao dịch ID: {}", updated.getId());
+        return getTransactionById(updated.getId());
+    }
+
+    /**
+     * Phân loại nhanh giao dịch (gắn danh mục và đổi trạng thái phân loại)
+     */
+    @Transactional
+    public TransactionResponse updateClassification(UUID id, UUID categoryId, ClassificationStatus status) {
+        Transaction tx = transactionRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Giao dịch", id));
+
+        if (categoryId != null) {
+            Category cat = categoryRepository.findByIdAndIsActiveTrue(categoryId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Danh mục", categoryId));
+            tx.setCategoryId(cat.getId());
+            tx.setClassificationStatus(status != null ? status : ClassificationStatus.CLASSIFIED);
+        } else {
+            tx.setCategoryId(null);
+            tx.setClassificationStatus(status != null ? status : ClassificationStatus.UNCLASSIFIED);
+        }
+
+        Transaction updated = transactionRepository.save(tx);
+        log.info("Đã cập nhật phân loại giao dịch ID: {} sang Danh mục: {}", updated.getId(), categoryId);
         return getTransactionById(updated.getId());
     }
 
@@ -541,14 +564,32 @@ public class TransactionService {
             List<DebtAllocationResponse> allocations,
             List<UUID> debtIds) {
 
+        TransactionResponse.CategorySummary categorySummary = (category != null)
+                ? TransactionResponse.CategorySummary.builder()
+                .id(category.getId())
+                .name(category.getName())
+                .icon(category.getIcon())
+                .color(category.getColor())
+                .build()
+                : (tx.getCategoryId() != null ? TransactionResponse.CategorySummary.builder().id(tx.getCategoryId()).build() : null);
+
+        TransactionResponse.AccountSummary accountSummary = (account != null)
+                ? TransactionResponse.AccountSummary.builder()
+                .id(account.getId())
+                .name(account.getName())
+                .build()
+                : (tx.getAccountId() != null ? TransactionResponse.AccountSummary.builder().id(tx.getAccountId()).build() : null);
+
         return TransactionResponse.builder()
                 .id(tx.getId())
                 .accountId(tx.getAccountId())
                 .accountName(account != null ? account.getName() : null)
+                .account(accountSummary)
                 .categoryId(tx.getCategoryId())
                 .categoryName(category != null ? category.getName() : null)
                 .categoryIcon(category != null ? category.getIcon() : null)
                 .categoryColor(category != null ? category.getColor() : null)
+                .category(categorySummary)
                 .type(tx.getType())
                 .amount(tx.getAmount())
                 .direction(tx.getDirection())

@@ -48,4 +48,27 @@ public class TransactionResponse {
     private UUID personId;
     private String personName;
     private java.time.LocalDate dueDate;
+
+    private CategorySummary category;
+    private AccountSummary account;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CategorySummary {
+        private UUID id;
+        private String name;
+        private String icon;
+        private String color;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AccountSummary {
+        private UUID id;
+        private String name;
+    }
 }
