@@ -268,7 +268,7 @@ public class TransactionService {
             if (request.getAmount() != null && !request.getAmount().equals(tx.getAmount())) {
                 throw new BusinessException("Không được phép sửa đổi số tiền của giao dịch từ ngân hàng");
             }
-            if (request.getTransactionDate() != null && !request.getTransactionDate().isEqual(tx.getTransactionDate())) {
+            if (request.getTransactionDate() != null && !request.getTransactionDate().toInstant().equals(tx.getTransactionDate().toInstant())) {
                 throw new BusinessException("Không được phép sửa đổi ngày giao dịch từ ngân hàng");
             }
             if (request.getAccountId() != null && !request.getAccountId().equals(tx.getAccountId())) {
@@ -342,14 +342,23 @@ public class TransactionService {
         if (tx.getType() == TransactionType.EXPENSE || tx.getType() == TransactionType.LOAN_GIVEN || tx.getType() == TransactionType.BORROW_RECEIVED) {
             if (request.getDebtAllocations() != null || request.getPersonId() != null) {
                 List<DebtAllocation> existingAllocations = debtAllocationRepository.findAllByTransactionId(tx.getId());
+                List<UUID> debtsToDelete = new ArrayList<>();
                 for (DebtAllocation a : existingAllocations) {
                     debtRepository.findById(a.getDebtId()).ifPresent(d -> {
                         if (d.getOriginType() == DebtOriginType.TRANSACTION && d.getStatus() == DebtStatus.OPEN) {
-                            debtRepository.delete(d);
+                            debtsToDelete.add(d.getId());
                         }
                     });
-                    debtAllocationRepository.delete(a);
                 }
+                if (!existingAllocations.isEmpty()) {
+                    debtAllocationRepository.deleteAll(existingAllocations);
+                    debtAllocationRepository.flush();
+                }
+                for (UUID debtId : debtsToDelete) {
+                    debtRepository.deleteById(debtId);
+                }
+                debtRepository.flush();
+
                 applyDebtAllocations(tx, request.getDebtAllocations(), request.getPersonId(), request.getDueDate());
             }
         }
@@ -638,6 +647,9 @@ public class TransactionService {
                     : (tx.getType() == TransactionType.BORROW_RECEIVED ? "Đi vay: " : "Chi hộ: ");
 
             for (DebtAllocationItemRequest allocReq : allocations) {
+                if (allocReq.getPersonId() == null || allocReq.getAllocatedAmount() == null || allocReq.getAllocatedAmount() <= 0) {
+                    continue;
+                }
                 Person person = personRepository.findById(allocReq.getPersonId())
                         .orElseThrow(() -> new ResourceNotFoundException("Người", allocReq.getPersonId()));
 

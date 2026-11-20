@@ -77,22 +77,28 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID>,
             @Param("endDate") OffsetDateTime endDate
     );
 
-    // Phân rã chi tiêu theo danh mục
+    // Phân rã chi tiêu theo danh mục (theo chi phí cá nhân thực tế, đã trừ đi phần chia tiền bạn bè)
     @Query(value = """
         SELECT 
             COALESCE(c.id, '00000000-0000-0000-0000-000000000000'::uuid) AS category_id,
             COALESCE(c.name, 'Chưa phân loại') AS category_name,
             COALESCE(c.icon, 'folder') AS category_icon,
             COALESCE(c.color, '#94A3B8') AS category_color,
-            COALESCE(SUM(t.amount), 0) AS total_amount
+            COALESCE(SUM(GREATEST(0, t.amount - COALESCE(alloc.total_allocated, 0))), 0) AS total_amount
         FROM transactions t
         LEFT JOIN categories c ON t.category_id = c.id
+        LEFT JOIN (
+            SELECT transaction_id, SUM(allocated_amount) AS total_allocated
+            FROM debt_allocations
+            GROUP BY transaction_id
+        ) alloc ON alloc.transaction_id = t.id
         WHERE t.status = 'POSTED'
           AND t.direction = 'OUT'
           AND t.type = 'EXPENSE'
           AND t.transaction_date >= :startDate
           AND t.transaction_date <= :endDate
         GROUP BY c.id, c.name, c.icon, c.color
+        HAVING COALESCE(SUM(GREATEST(0, t.amount - COALESCE(alloc.total_allocated, 0))), 0) > 0
         ORDER BY total_amount DESC
         """, nativeQuery = true)
     List<Object[]> findExpenseByCategory(

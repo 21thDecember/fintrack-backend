@@ -60,7 +60,7 @@ public class ReportService {
         long personalExpense = Math.max(0L, totalGrossExpense - totalDebtAlloc);
         long netCashFlow = totalIncome - totalGrossExpense;
 
-        List<CategoryBreakdownResponse> categoryBreakdown = getCategoryBreakdown(startDate, endDate, totalGrossExpense);
+        List<CategoryBreakdownResponse> categoryBreakdown = getCategoryBreakdown(startDate, endDate, personalExpense);
 
         return WeeklyReportResponse.builder()
                 .startDate(startDate)
@@ -93,7 +93,7 @@ public class ReportService {
         long personalExpense = Math.max(0L, totalGrossExpense - totalDebtAlloc);
         long netCashFlow = totalIncome - totalGrossExpense;
 
-        List<CategoryBreakdownResponse> categoryBreakdown = getCategoryBreakdown(startDate, endDate, totalGrossExpense);
+        List<CategoryBreakdownResponse> categoryBreakdown = getCategoryBreakdown(startDate, endDate, personalExpense);
 
         // Tính toán tháng trước để so sánh tăng giảm (%)
         int prevMonth = (month == 1) ? 12 : month - 1;
