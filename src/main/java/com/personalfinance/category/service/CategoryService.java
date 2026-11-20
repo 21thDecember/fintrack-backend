@@ -23,17 +23,29 @@ public class CategoryService {
     private final CategoryRepository categoryRepository;
 
     @Transactional(readOnly = true)
-    public List<CategoryResponse> getCategories(CategoryType type) {
-        List<Category> categories = (type != null)
-                ? categoryRepository.findByTypeAndIsActiveTrueOrderByNameAsc(type)
-                : categoryRepository.findAllByIsActiveTrueOrderByNameAsc();
+    public List<CategoryResponse> getCategories(CategoryType type, Boolean activeOnly) {
+        List<Category> categories;
+        if (Boolean.TRUE.equals(activeOnly)) {
+            categories = (type != null)
+                    ? categoryRepository.findByTypeAndIsActiveTrueOrderByNameAsc(type)
+                    : categoryRepository.findAllByIsActiveTrueOrderByNameAsc();
+        } else {
+            categories = (type != null)
+                    ? categoryRepository.findByTypeOrderByNameAsc(type)
+                    : categoryRepository.findAllByOrderByNameAsc();
+        }
 
         return categories.stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
+    public List<CategoryResponse> getCategories(CategoryType type) {
+        return getCategories(type, null);
+    }
+
+    @Transactional(readOnly = true)
     public CategoryResponse getCategoryById(UUID id) {
-        Category category = categoryRepository.findByIdAndIsActiveTrue(id)
+        Category category = categoryRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Danh mục", id));
         return toResponse(category);
     }
@@ -42,6 +54,22 @@ public class CategoryService {
     public Category getEntityById(UUID id) {
         return categoryRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Danh mục", id));
+    }
+
+    @Transactional
+    public CategoryResponse toggleCategoryStatus(UUID id, Boolean isActive) {
+        Category category = categoryRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Danh mục", id));
+
+        if (isActive != null) {
+            category.setIsActive(isActive);
+        } else {
+            category.setIsActive(!Boolean.TRUE.equals(category.getIsActive()));
+        }
+
+        Category updated = categoryRepository.save(category);
+        log.info("Đã cập nhật trạng thái danh mục: {} ({}) -> isActive={}", category.getName(), id, updated.getIsActive());
+        return toResponse(updated);
     }
 
     @Transactional

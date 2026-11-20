@@ -38,11 +38,35 @@ public class AccountService {
     }
 
     @Transactional(readOnly = true)
+    public List<AccountResponse> getAllAccounts(Boolean activeOnly) {
+        List<Account> accounts;
+        if (Boolean.TRUE.equals(activeOnly)) {
+            accounts = accountRepository.findAllByIsActiveTrueOrderByCreatedAtAsc();
+        } else {
+            accounts = accountRepository.findAll();
+        }
+        return accounts.stream().map(this::toResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<AccountResponse> getAllAccounts() {
-        return accountRepository.findAllByIsActiveTrueOrderByCreatedAtAsc()
-                .stream()
-                .map(this::toResponse)
-                .toList();
+        return getAllAccounts(false);
+    }
+
+    @Transactional
+    public AccountResponse toggleAccountStatus(UUID id, Boolean isActive) {
+        Account account = accountRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Tài khoản", id));
+
+        if (isActive != null) {
+            account.setIsActive(isActive);
+        } else {
+            account.setIsActive(!Boolean.TRUE.equals(account.getIsActive()));
+        }
+
+        Account updated = accountRepository.save(account);
+        log.info("Đã cập nhật trạng thái tài khoản: {} ({}) -> isActive={}", account.getName(), id, updated.getIsActive());
+        return toResponse(updated);
     }
 
     @Transactional(readOnly = true)
