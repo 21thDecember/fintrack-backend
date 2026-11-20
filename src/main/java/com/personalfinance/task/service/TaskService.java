@@ -268,6 +268,17 @@ public class TaskService {
         task.setParentTaskId(request.getParentTaskId());
 
         task = taskRepository.save(task);
+
+        if (request.getStatus() == TaskStatus.COMPLETED) {
+            List<Task> subtasks = taskRepository.findByParentTaskIdAndUserIdOrderByCreatedAtAsc(id, userId);
+            for (Task sub : subtasks) {
+                if (sub.getStatus() != TaskStatus.COMPLETED) {
+                    handleStatusTransition(sub, TaskStatus.COMPLETED);
+                    taskRepository.save(sub);
+                }
+            }
+        }
+
         return toResponse(task, true);
     }
 
@@ -283,6 +294,18 @@ public class TaskService {
 
         handleStatusTransition(task, request.getStatus());
         task = taskRepository.save(task);
+
+        // When parent task is marked as COMPLETED, also complete all its subtasks
+        if (request.getStatus() == TaskStatus.COMPLETED) {
+            List<Task> subtasks = taskRepository.findByParentTaskIdAndUserIdOrderByCreatedAtAsc(id, userId);
+            for (Task sub : subtasks) {
+                if (sub.getStatus() != TaskStatus.COMPLETED) {
+                    handleStatusTransition(sub, TaskStatus.COMPLETED);
+                    taskRepository.save(sub);
+                }
+            }
+        }
+
         return toResponse(task, true);
     }
 
@@ -348,7 +371,8 @@ public class TaskService {
                     .map(Goal::getTitle)
                     .orElse(null);
         }
-        return mapToResponseWithSubtasks(task, Collections.emptyList(), goalTitle);
+        List<Task> subtasks = taskRepository.findByParentTaskIdAndUserIdOrderByCreatedAtAsc(task.getId(), task.getUserId());
+        return mapToResponseWithSubtasks(task, subtasks, goalTitle);
     }
 
     private TaskResponse mapToResponseWithSubtasks(Task task, List<Task> subtasks, String goalTitle) {
