@@ -27,22 +27,22 @@ public final class DateTimeUtil {
 
     public static OffsetDateTime startOfDay(LocalDate date) {
         if (date == null) return null;
-        return date.atStartOfDay(ZoneOffset.UTC).toOffsetDateTime();
+        return date.atStartOfDay(ZONE_VN).toOffsetDateTime();
     }
 
     public static OffsetDateTime endOfDay(LocalDate date) {
         if (date == null) return null;
-        return date.atTime(LocalTime.MAX).atOffset(ZoneOffset.UTC);
+        return date.atTime(LocalTime.MAX).atZone(ZONE_VN).toOffsetDateTime();
     }
 
     public static OffsetDateTime startOfWeek(LocalDate date) {
-        if (date == null) date = LocalDate.now(ZoneOffset.UTC);
+        if (date == null) date = LocalDate.now(ZONE_VN);
         LocalDate monday = date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         return startOfDay(monday);
     }
 
     public static OffsetDateTime endOfWeek(LocalDate date) {
-        if (date == null) date = LocalDate.now(ZoneOffset.UTC);
+        if (date == null) date = LocalDate.now(ZONE_VN);
         LocalDate sunday = date.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY));
         return endOfDay(sunday);
     }

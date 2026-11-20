@@ -27,4 +27,6 @@ public class DashboardResponse {
     private PeriodComparisonResponse periodComparison;
     private List<TransactionResponse> recentTransactions;
     private List<UpcomingDebtItem> upcomingDebts;
+    private List<IncomeExpenseChartItem> incomeExpenseChart;
+    private List<CategoryExpenseChartItem> categoryExpenseChart;
 }

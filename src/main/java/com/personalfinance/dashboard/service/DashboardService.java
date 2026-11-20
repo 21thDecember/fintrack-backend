@@ -2,7 +2,9 @@ package com.personalfinance.dashboard.service;
 
 import com.personalfinance.account.service.AccountService;
 import com.personalfinance.common.util.DateTimeUtil;
+import com.personalfinance.dashboard.dto.CategoryExpenseChartItem;
 import com.personalfinance.dashboard.dto.DashboardResponse;
+import com.personalfinance.dashboard.dto.IncomeExpenseChartItem;
 import com.personalfinance.dashboard.dto.PeriodComparisonResponse;
 import com.personalfinance.dashboard.dto.UpcomingDebtItem;
 import com.personalfinance.debt.entity.Debt;
@@ -25,8 +27,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -51,13 +55,19 @@ public class DashboardService {
         }
         periodStr = periodStr.trim().toUpperCase();
 
-        LocalDate now = LocalDate.now(ZoneOffset.UTC);
+        LocalDate now = LocalDate.now(DateTimeUtil.ZONE_VN);
         OffsetDateTime startDate;
         OffsetDateTime endDate;
         OffsetDateTime prevStartDate;
         OffsetDateTime prevEndDate;
 
         switch (periodStr) {
+            case "TODAY":
+                startDate = DateTimeUtil.startOfDay(now);
+                endDate = DateTimeUtil.endOfDay(now);
+                prevStartDate = startDate.minusDays(1);
+                prevEndDate = endDate.minusDays(1);
+                break;
             case "THIS_WEEK":
                 startDate = DateTimeUtil.startOfWeek(now);
                 endDate = DateTimeUtil.endOfWeek(now);
@@ -148,6 +158,20 @@ public class DashboardService {
         List<Debt> upcomingDebtList = debtRepository.findUpcomingDebts(now.plusDays(14), 10);
         List<UpcomingDebtItem> upcomingDebts = mapUpcomingDebts(upcomingDebtList, now);
 
+        // 7. Biểu đồ thu chi và cơ cấu chi tiêu
+        List<IncomeExpenseChartItem> incomeExpenseChart = buildIncomeExpenseChart(periodStr, startDate, endDate);
+
+        List<Object[]> catRows = transactionRepository.findExpenseByCategory(startDate, endDate);
+        List<CategoryExpenseChartItem> categoryExpenseChart = catRows.stream()
+                .map(row -> CategoryExpenseChartItem.builder()
+                        .name(String.valueOf(row[1]))
+                        .icon(row[2] != null ? String.valueOf(row[2]) : "folder")
+                        .color(row[3] != null ? String.valueOf(row[3]) : "#94A3B8")
+                        .amount(((Number) row[4]).longValue())
+                        .build())
+                .filter(item -> item.getAmount() > 0)
+                .toList();
+
         return DashboardResponse.builder()
                 .period(periodStr)
                 .totalBalance(balance)
@@ -162,7 +186,95 @@ public class DashboardService {
                 .periodComparison(periodComparison)
                 .recentTransactions(recentTransactions)
                 .upcomingDebts(upcomingDebts)
+                .incomeExpenseChart(incomeExpenseChart)
+                .categoryExpenseChart(categoryExpenseChart)
                 .build();
+    }
+
+    private List<IncomeExpenseChartItem> buildIncomeExpenseChart(String periodStr, OffsetDateTime startDate, OffsetDateTime endDate) {
+        List<IncomeExpenseChartItem> chartItems = new ArrayList<>();
+        if ("TODAY".equals(periodStr)) {
+            List<Object[]> hourRows = transactionRepository.findHourlyIncomeExpense(startDate, endDate);
+            long[] slotIncome = new long[4];
+            long[] slotExpense = new long[4];
+            for (Object[] r : hourRows) {
+                int hour = ((Number) r[0]).intValue();
+                long inc = ((Number) r[1]).longValue();
+                long exp = ((Number) r[2]).longValue();
+                int slotIdx = Math.min(3, hour / 6);
+                slotIncome[slotIdx] += inc;
+                slotExpense[slotIdx] += exp;
+            }
+            String[] labels = {"00:00 - 06:00", "06:00 - 12:00", "12:00 - 18:00", "18:00 - 24:00"};
+            for (int i = 0; i < 4; i++) {
+                chartItems.add(IncomeExpenseChartItem.builder()
+                        .label(labels[i])
+                        .income(slotIncome[i])
+                        .expense(slotExpense[i])
+                        .build());
+            }
+        } else if ("THIS_YEAR".equals(periodStr)) {
+            List<Object[]> monthRows = transactionRepository.findMonthlyIncomeExpense(startDate, endDate);
+            Map<Integer, long[]> monthMap = new HashMap<>();
+            for (Object[] r : monthRows) {
+                int m = ((Number) r[0]).intValue();
+                long inc = ((Number) r[1]).longValue();
+                long exp = ((Number) r[2]).longValue();
+                monthMap.put(m, new long[]{inc, exp});
+            }
+            for (int m = 1; m <= 12; m++) {
+                long[] val = monthMap.getOrDefault(m, new long[]{0, 0});
+                chartItems.add(IncomeExpenseChartItem.builder()
+                        .label("Th" + m)
+                        .income(val[0])
+                        .expense(val[1])
+                        .build());
+            }
+        } else {
+            // THIS_WEEK, THIS_MONTH, LAST_MONTH (daily grouping)
+            List<Object[]> dailyRows = transactionRepository.findDailyIncomeExpense(startDate, endDate);
+            Map<String, long[]> dateMap = new HashMap<>();
+            for (Object[] r : dailyRows) {
+                String dStr = String.valueOf(r[0]);
+                long inc = ((Number) r[1]).longValue();
+                long exp = ((Number) r[2]).longValue();
+                dateMap.put(dStr, new long[]{inc, exp});
+            }
+
+            LocalDate startLocal = startDate.atZoneSameInstant(DateTimeUtil.ZONE_VN).toLocalDate();
+            LocalDate endLocal = endDate.atZoneSameInstant(DateTimeUtil.ZONE_VN).toLocalDate();
+
+            DateTimeFormatter labelFormatter = DateTimeFormatter.ofPattern("dd/MM");
+            LocalDate cur = startLocal;
+            while (!cur.isAfter(endLocal)) {
+                String key = cur.format(DateTimeFormatter.ISO_LOCAL_DATE);
+                long[] val = dateMap.getOrDefault(key, new long[]{0, 0});
+
+                String label;
+                if ("THIS_WEEK".equals(periodStr)) {
+                    String dow = switch (cur.getDayOfWeek()) {
+                        case MONDAY -> "T2";
+                        case TUESDAY -> "T3";
+                        case WEDNESDAY -> "T4";
+                        case THURSDAY -> "T5";
+                        case FRIDAY -> "T6";
+                        case SATURDAY -> "T7";
+                        case SUNDAY -> "CN";
+                    };
+                    label = dow + " " + cur.format(labelFormatter);
+                } else {
+                    label = cur.format(labelFormatter);
+                }
+
+                chartItems.add(IncomeExpenseChartItem.builder()
+                        .label(label)
+                        .income(val[0])
+                        .expense(val[1])
+                        .build());
+                cur = cur.plusDays(1);
+            }
+        }
+        return chartItems;
     }
 
     private List<UpcomingDebtItem> mapUpcomingDebts(List<Debt> debts, LocalDate now) {

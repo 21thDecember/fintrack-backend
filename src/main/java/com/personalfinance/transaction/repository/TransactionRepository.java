@@ -80,13 +80,13 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID>,
     // Phân rã chi tiêu theo danh mục
     @Query(value = """
         SELECT 
-            c.id AS category_id,
-            c.name AS category_name,
-            c.icon AS category_icon,
-            c.color AS category_color,
+            COALESCE(c.id, '00000000-0000-0000-0000-000000000000'::uuid) AS category_id,
+            COALESCE(c.name, 'Chưa phân loại') AS category_name,
+            COALESCE(c.icon, 'folder') AS category_icon,
+            COALESCE(c.color, '#94A3B8') AS category_color,
             COALESCE(SUM(t.amount), 0) AS total_amount
         FROM transactions t
-        JOIN categories c ON t.category_id = c.id
+        LEFT JOIN categories c ON t.category_id = c.id
         WHERE t.status = 'POSTED'
           AND t.direction = 'OUT'
           AND t.type = 'EXPENSE'
@@ -96,6 +96,60 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID>,
         ORDER BY total_amount DESC
         """, nativeQuery = true)
     List<Object[]> findExpenseByCategory(
+            @Param("startDate") OffsetDateTime startDate,
+            @Param("endDate") OffsetDateTime endDate
+    );
+
+    // Thống kê thu chi theo ngày trong khoảng thời gian
+    @Query(value = """
+        SELECT 
+            TO_CHAR(t.transaction_date AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD') AS tx_date,
+            COALESCE(SUM(CASE WHEN t.direction = 'IN' AND t.type IN ('INCOME', 'DEBT_COLLECTION', 'BORROW_RECEIVED') THEN t.amount ELSE 0 END), 0) AS daily_income,
+            COALESCE(SUM(CASE WHEN t.direction = 'OUT' AND t.type IN ('EXPENSE', 'DEBT_REPAYMENT', 'LOAN_GIVEN') THEN t.amount ELSE 0 END), 0) AS daily_expense
+        FROM transactions t
+        WHERE t.status = 'POSTED'
+          AND t.transaction_date >= :startDate
+          AND t.transaction_date <= :endDate
+        GROUP BY TO_CHAR(t.transaction_date AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD')
+        ORDER BY tx_date ASC
+        """, nativeQuery = true)
+    List<Object[]> findDailyIncomeExpense(
+            @Param("startDate") OffsetDateTime startDate,
+            @Param("endDate") OffsetDateTime endDate
+    );
+
+    // Thống kê thu chi theo giờ trong ngày
+    @Query(value = """
+        SELECT 
+            EXTRACT(HOUR FROM t.transaction_date AT TIME ZONE 'Asia/Ho_Chi_Minh') AS tx_hour,
+            COALESCE(SUM(CASE WHEN t.direction = 'IN' AND t.type IN ('INCOME', 'DEBT_COLLECTION', 'BORROW_RECEIVED') THEN t.amount ELSE 0 END), 0) AS hour_income,
+            COALESCE(SUM(CASE WHEN t.direction = 'OUT' AND t.type IN ('EXPENSE', 'DEBT_REPAYMENT', 'LOAN_GIVEN') THEN t.amount ELSE 0 END), 0) AS hour_expense
+        FROM transactions t
+        WHERE t.status = 'POSTED'
+          AND t.transaction_date >= :startDate
+          AND t.transaction_date <= :endDate
+        GROUP BY EXTRACT(HOUR FROM t.transaction_date AT TIME ZONE 'Asia/Ho_Chi_Minh')
+        ORDER BY tx_hour ASC
+        """, nativeQuery = true)
+    List<Object[]> findHourlyIncomeExpense(
+            @Param("startDate") OffsetDateTime startDate,
+            @Param("endDate") OffsetDateTime endDate
+    );
+
+    // Thống kê thu chi theo tháng trong năm
+    @Query(value = """
+        SELECT 
+            EXTRACT(MONTH FROM t.transaction_date AT TIME ZONE 'Asia/Ho_Chi_Minh') AS tx_month,
+            COALESCE(SUM(CASE WHEN t.direction = 'IN' AND t.type IN ('INCOME', 'DEBT_COLLECTION', 'BORROW_RECEIVED') THEN t.amount ELSE 0 END), 0) AS month_income,
+            COALESCE(SUM(CASE WHEN t.direction = 'OUT' AND t.type IN ('EXPENSE', 'DEBT_REPAYMENT', 'LOAN_GIVEN') THEN t.amount ELSE 0 END), 0) AS month_expense
+        FROM transactions t
+        WHERE t.status = 'POSTED'
+          AND t.transaction_date >= :startDate
+          AND t.transaction_date <= :endDate
+        GROUP BY EXTRACT(MONTH FROM t.transaction_date AT TIME ZONE 'Asia/Ho_Chi_Minh')
+        ORDER BY tx_month ASC
+        """, nativeQuery = true)
+    List<Object[]> findMonthlyIncomeExpense(
             @Param("startDate") OffsetDateTime startDate,
             @Param("endDate") OffsetDateTime endDate
     );
