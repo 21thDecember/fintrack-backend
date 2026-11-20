@@ -23,4 +23,16 @@ public class PersonDebtSummaryResponse {
     private Long totalPayable;    // Tổng tiền mình đang nợ người này
     private Long netAmount;       // Số nợ ròng (dương: họ nợ mình, âm: mình nợ họ)
     private long openDebtsCount;  // Số khoản nợ đang mở/chưa thanh toán xong
+
+    public Long getReceivableAmount() {
+        return totalReceivable;
+    }
+
+    public Long getPayableAmount() {
+        return totalPayable;
+    }
+
+    public long getActiveDebtsCount() {
+        return openDebtsCount;
+    }
 }
