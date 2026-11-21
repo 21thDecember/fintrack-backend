@@ -34,5 +34,9 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
             @Param("now") OffsetDateTime now
     );
 
+    long countByUserIdAndCompletedAtBetween(UUID userId, OffsetDateTime start, OffsetDateTime end);
+
+    long countByUserIdAndDueDateBetween(UUID userId, OffsetDateTime start, OffsetDateTime end);
+
     List<Task> findByGoalIdAndUserId(UUID goalId, UUID userId);
 }
