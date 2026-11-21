@@ -2,6 +2,7 @@ package com.personalfinance.habit.controller;
 
 import com.personalfinance.common.response.ApiResponse;
 import com.personalfinance.habit.dto.CheckinRequest;
+import com.personalfinance.habit.dto.CheckinResponse;
 import com.personalfinance.habit.dto.HabitRequest;
 import com.personalfinance.habit.dto.HabitResponse;
 import com.personalfinance.habit.dto.HabitStatisticsResponse;
@@ -48,8 +49,25 @@ public class HabitController {
     }
 
     @GetMapping("/today")
-    public ApiResponse<List<TodayHabitResponse>> getTodayHabits() {
-        return ApiResponse.success(habitService.getTodayHabits());
+    public ApiResponse<List<TodayHabitResponse>> getTodayHabits(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date
+    ) {
+        return ApiResponse.success(habitService.getHabitsByDate(date));
+    }
+
+    @GetMapping("/by-date")
+    public ApiResponse<List<TodayHabitResponse>> getHabitsByDate(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date
+    ) {
+        return ApiResponse.success(habitService.getHabitsByDate(date));
+    }
+
+    @GetMapping("/check-ins")
+    public ApiResponse<List<CheckinResponse>> getCheckins(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
+    ) {
+        return ApiResponse.success(habitService.getCheckins(from, to));
     }
 
     @GetMapping("/statistics")

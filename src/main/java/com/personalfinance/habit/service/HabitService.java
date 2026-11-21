@@ -232,42 +232,47 @@ public class HabitService {
 
     @Transactional(readOnly = true)
     public List<TodayHabitResponse> getTodayHabits() {
+        return getHabitsByDate(null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<TodayHabitResponse> getHabitsByDate(LocalDate targetDate) {
         UUID userId = SecurityUtils.getCurrentUserId();
         LocalDate today = LocalDate.now(DateTimeUtil.ZONE_VN);
-        String todayDayOfWeek = today.getDayOfWeek().name();
+        LocalDate date = targetDate != null ? targetDate : today;
+        String dayOfWeek = date.getDayOfWeek().name();
 
-        List<Habit> activeHabits = habitRepository.findByUserIdAndIsActiveTrueOrderByCreatedAtDesc(userId);
-        if (activeHabits.isEmpty()) {
+        List<Habit> userHabits = habitRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        if (userHabits.isEmpty()) {
             return Collections.emptyList();
         }
 
-        // Filter habits active today
-        List<Habit> todayHabits = activeHabits.stream()
-                .filter(h -> {
-                    if (h.getStartDate().isAfter(today)) return false;
-                    if (h.getEndDate() != null && h.getEndDate().isBefore(today)) return false;
-                    List<String> days = h.getActiveDays() != null ? h.getActiveDays() : ALL_DAYS;
-                    return h.getFrequency() == HabitFrequency.WEEKLY || days.contains(todayDayOfWeek);
-                })
-                .toList();
-
-        if (todayHabits.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        List<UUID> habitIds = todayHabits.stream().map(Habit::getId).toList();
-        Map<UUID, HabitCheckin> todayCheckinMap = habitCheckinRepository.findByHabitIdInAndCompletionDate(habitIds, today)
+        List<UUID> allHabitIds = userHabits.stream().map(Habit::getId).toList();
+        Map<UUID, HabitCheckin> checkinMap = habitCheckinRepository.findByHabitIdInAndCompletionDate(allHabitIds, date)
                 .stream().collect(Collectors.toMap(HabitCheckin::getHabitId, c -> c));
 
-        List<UUID> goalIds = todayHabits.stream().map(Habit::getGoalId).filter(java.util.Objects::nonNull).distinct().toList();
+        List<UUID> goalIds = userHabits.stream().map(Habit::getGoalId).filter(java.util.Objects::nonNull).distinct().toList();
         Map<UUID, String> goalTitleMap = goalIds.isEmpty() ? Collections.emptyMap() :
                 goalRepository.findAllById(goalIds).stream().collect(Collectors.toMap(Goal::getId, Goal::getTitle));
 
-        return todayHabits.stream()
+        List<Habit> targetHabits = userHabits.stream()
+                .filter(h -> {
+                    // Always include if checked in on that date
+                    if (checkinMap.containsKey(h.getId())) return true;
+                    // Otherwise must be active and within active date window
+                    if (!Boolean.TRUE.equals(h.getIsActive())) return false;
+                    if (h.getStartDate().isAfter(date)) return false;
+                    if (h.getEndDate() != null && h.getEndDate().isBefore(date)) return false;
+                    List<String> days = h.getActiveDays() != null ? h.getActiveDays() : ALL_DAYS;
+                    return h.getFrequency() == HabitFrequency.WEEKLY || days.contains(dayOfWeek);
+                })
+                .toList();
+
+        return targetHabits.stream()
                 .map(h -> {
-                    HabitCheckin c = todayCheckinMap.get(h.getId());
-                    int todayCount = c != null ? c.getCount() : 0;
-                    boolean isCompletedToday = todayCount >= h.getTargetCount();
+                    HabitCheckin c = checkinMap.get(h.getId());
+                    int dayCount = c != null && c.getCount() != null ? c.getCount() : 0;
+                    boolean isCompleted = dayCount >= h.getTargetCount();
                     List<HabitCheckin> checkins = habitCheckinRepository.findByHabitIdOrderByCompletionDateDesc(h.getId());
                     int streak = calculateCurrentStreak(h, checkins, today);
 
@@ -277,13 +282,33 @@ public class HabitService {
                             .description(h.getDescription())
                             .frequency(h.getFrequency())
                             .targetCount(h.getTargetCount())
-                            .todayCount(todayCount)
-                            .isCompletedToday(isCompletedToday)
+                            .todayCount(dayCount)
+                            .isCompletedToday(isCompleted)
                             .currentStreak(streak)
                             .goalId(h.getGoalId())
                             .goalTitle(goalTitleMap.get(h.getGoalId()))
                             .build();
                 })
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<CheckinResponse> getCheckins(LocalDate from, LocalDate to) {
+        UUID userId = SecurityUtils.getCurrentUserId();
+        LocalDate today = LocalDate.now(DateTimeUtil.ZONE_VN);
+        LocalDate start = from != null ? from : today.minusDays(30);
+        LocalDate end = to != null ? to : today;
+
+        List<HabitCheckin> list = habitCheckinRepository.findByUserIdAndCompletionDateBetweenOrderByCompletionDateAsc(userId, start, end);
+        return list.stream()
+                .map(c -> CheckinResponse.builder()
+                        .id(c.getId())
+                        .habitId(c.getHabitId())
+                        .completionDate(c.getCompletionDate())
+                        .count(c.getCount())
+                        .note(c.getNote())
+                        .createdAt(c.getCreatedAt())
+                        .build())
                 .toList();
     }
 

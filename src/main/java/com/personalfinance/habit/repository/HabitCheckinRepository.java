@@ -21,6 +21,8 @@ public interface HabitCheckinRepository extends JpaRepository<HabitCheckin, UUID
 
     List<HabitCheckin> findByHabitIdAndCompletionDateBetweenOrderByCompletionDateAsc(UUID habitId, LocalDate from, LocalDate to);
 
+    List<HabitCheckin> findByUserIdAndCompletionDateBetweenOrderByCompletionDateAsc(UUID userId, LocalDate from, LocalDate to);
+
     void deleteByHabitIdAndCompletionDate(UUID habitId, LocalDate completionDate);
 
     void deleteByHabitId(UUID habitId);
