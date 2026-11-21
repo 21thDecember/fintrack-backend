@@ -16,6 +16,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -59,6 +60,23 @@ public class Goal {
     @Builder.Default
     private GoalStatus status = GoalStatus.NOT_STARTED;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "goal_type", nullable = false, length = 30)
+    @Builder.Default
+    private GoalType goalType = GoalType.MILESTONE;
+
+    @Column(name = "target_value")
+    @Builder.Default
+    private BigDecimal targetValue = BigDecimal.ZERO;
+
+    @Column(name = "current_value")
+    @Builder.Default
+    private BigDecimal currentValue = BigDecimal.ZERO;
+
+    @Column(name = "unit", length = 50)
+    @Builder.Default
+    private String unit = "";
+
     @Column(name = "start_date")
     private LocalDate startDate;
 
@@ -91,6 +109,18 @@ public class Goal {
         }
         if (this.status == null) {
             this.status = GoalStatus.NOT_STARTED;
+        }
+        if (this.goalType == null) {
+            this.goalType = GoalType.MILESTONE;
+        }
+        if (this.targetValue == null) {
+            this.targetValue = BigDecimal.ZERO;
+        }
+        if (this.currentValue == null) {
+            this.currentValue = BigDecimal.ZERO;
+        }
+        if (this.unit == null) {
+            this.unit = "";
         }
     }
 

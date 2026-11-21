@@ -5,6 +5,7 @@ import com.personalfinance.common.exception.ResourceNotFoundException;
 import com.personalfinance.common.util.DateTimeUtil;
 import com.personalfinance.common.util.SecurityUtils;
 import com.personalfinance.goal.dto.GoalProgressResponse;
+import com.personalfinance.goal.dto.GoalProgressUpdateRequest;
 import com.personalfinance.goal.dto.GoalRequest;
 import com.personalfinance.goal.dto.GoalResponse;
 import com.personalfinance.goal.dto.GoalStatisticsResponse;
@@ -15,6 +16,7 @@ import com.personalfinance.goal.entity.GoalCategory;
 import com.personalfinance.goal.entity.GoalMilestone;
 import com.personalfinance.goal.entity.GoalPriority;
 import com.personalfinance.goal.entity.GoalStatus;
+import com.personalfinance.goal.entity.GoalType;
 import com.personalfinance.goal.entity.MilestoneStatus;
 import com.personalfinance.goal.repository.GoalMilestoneRepository;
 import com.personalfinance.goal.repository.GoalRepository;
@@ -31,6 +33,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -57,6 +61,11 @@ public class GoalService {
         GoalStatus status = request.getStatus() != null ? request.getStatus() : GoalStatus.NOT_STARTED;
         OffsetDateTime completedAt = status == GoalStatus.COMPLETED ? OffsetDateTime.now(ZoneOffset.UTC) : null;
 
+        GoalType goalType = request.getGoalType() != null ? request.getGoalType() : GoalType.MILESTONE;
+        BigDecimal targetValue = request.getTargetValue() != null ? request.getTargetValue() : BigDecimal.ZERO;
+        BigDecimal currentValue = request.getCurrentValue() != null ? request.getCurrentValue() : BigDecimal.ZERO;
+        String unit = request.getUnit() != null ? request.getUnit().trim() : "";
+
         Goal goal = Goal.builder()
                 .userId(userId)
                 .title(request.getTitle().trim())
@@ -64,6 +73,10 @@ public class GoalService {
                 .category(request.getCategory() != null ? request.getCategory() : GoalCategory.PERSONAL)
                 .priority(request.getPriority() != null ? request.getPriority() : GoalPriority.MEDIUM)
                 .status(status)
+                .goalType(goalType)
+                .targetValue(targetValue)
+                .currentValue(currentValue)
+                .unit(unit)
                 .startDate(request.getStartDate())
                 .targetDate(request.getTargetDate())
                 .completedAt(completedAt)
@@ -141,6 +154,18 @@ public class GoalService {
         }
         if (request.getPriority() != null) {
             goal.setPriority(request.getPriority());
+        }
+        if (request.getGoalType() != null) {
+            goal.setGoalType(request.getGoalType());
+        }
+        if (request.getTargetValue() != null) {
+            goal.setTargetValue(request.getTargetValue());
+        }
+        if (request.getCurrentValue() != null) {
+            goal.setCurrentValue(request.getCurrentValue());
+        }
+        if (request.getUnit() != null) {
+            goal.setUnit(request.getUnit().trim());
         }
         if (request.getStatus() != null) {
             if (goal.getStatus() != GoalStatus.COMPLETED && request.getStatus() == GoalStatus.COMPLETED) {
@@ -238,26 +263,82 @@ public class GoalService {
         goalMilestoneRepository.delete(milestone);
     }
 
+    @Transactional
+    public GoalResponse updateGoalProgress(UUID id, GoalProgressUpdateRequest request) {
+        UUID userId = SecurityUtils.getCurrentUserId();
+        Goal goal = goalRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Mục tiêu không tồn tại"));
+
+        if (request.getCurrentValue() != null) {
+            goal.setCurrentValue(request.getCurrentValue());
+        }
+
+        List<GoalMilestone> milestones = goalMilestoneRepository.findByGoalIdAndUserIdOrderByDisplayOrderAscCreatedAtAsc(id, userId);
+        List<Task> tasks = taskRepository.findByGoalIdAndUserId(id, userId);
+        double pct = calculateProgress(goal, milestones, tasks);
+
+        if (request.getStatus() != null) {
+            if (goal.getStatus() != GoalStatus.COMPLETED && request.getStatus() == GoalStatus.COMPLETED) {
+                goal.setCompletedAt(OffsetDateTime.now(ZoneOffset.UTC));
+            } else if (goal.getStatus() == GoalStatus.COMPLETED && request.getStatus() != GoalStatus.COMPLETED) {
+                goal.setCompletedAt(null);
+            }
+            goal.setStatus(request.getStatus());
+        } else {
+            // Auto update status based on progress
+            if (pct >= 100.0 && goal.getStatus() != GoalStatus.COMPLETED && goal.getStatus() != GoalStatus.CANCELLED) {
+                goal.setStatus(GoalStatus.COMPLETED);
+                goal.setCompletedAt(OffsetDateTime.now(ZoneOffset.UTC));
+            } else if (pct > 0.0 && goal.getStatus() == GoalStatus.NOT_STARTED) {
+                goal.setStatus(GoalStatus.IN_PROGRESS);
+            } else if (pct < 100.0 && goal.getStatus() == GoalStatus.COMPLETED) {
+                goal.setStatus(GoalStatus.IN_PROGRESS);
+                goal.setCompletedAt(null);
+            }
+        }
+
+        goal = goalRepository.save(goal);
+        List<Habit> habits = habitRepository.findByGoalIdAndUserId(id, userId);
+
+        List<TaskResponse> taskResponses = tasks.stream().map(t -> TaskResponse.builder()
+                .id(t.getId())
+                .title(t.getTitle())
+                .status(t.getStatus())
+                .priority(t.getPriority())
+                .dueDate(t.getDueDate())
+                .build()).toList();
+
+        List<HabitResponse> habitResponses = habits.stream().map(h -> HabitResponse.builder()
+                .id(h.getId())
+                .name(h.getName())
+                .frequency(h.getFrequency())
+                .targetCount(h.getTargetCount())
+                .build()).toList();
+
+        return toGoalResponse(goal, milestones, taskResponses, habitResponses);
+    }
+
     @Transactional(readOnly = true)
     public GoalProgressResponse getProgress(UUID goalId) {
         UUID userId = SecurityUtils.getCurrentUserId();
-        goalRepository.findByIdAndUserId(goalId, userId)
+        Goal goal = goalRepository.findByIdAndUserId(goalId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Mục tiêu không tồn tại"));
 
-        long total = goalMilestoneRepository.countByGoalIdAndUserId(goalId, userId);
-        long completed = goalMilestoneRepository.countByGoalIdAndUserIdAndStatus(goalId, userId, MilestoneStatus.COMPLETED);
-
-        double pct = total > 0 ? ((double) completed / total) * 100.0 : 0.0;
-        pct = Math.round(pct * 10.0) / 10.0;
-
+        List<GoalMilestone> milestones = goalMilestoneRepository.findByGoalIdAndUserIdOrderByDisplayOrderAscCreatedAtAsc(goalId, userId);
         List<Task> tasks = taskRepository.findByGoalIdAndUserId(goalId, userId);
+        double pct = calculateProgress(goal, milestones, tasks);
+
         long completedTasks = tasks.stream().filter(t -> t.getStatus() == TaskStatus.COMPLETED).count();
         long linkedHabits = habitRepository.findByGoalIdAndUserId(goalId, userId).size();
 
         return GoalProgressResponse.builder()
                 .goalId(goalId)
-                .totalMilestones((int) total)
-                .completedMilestones((int) completed)
+                .goalType(goal.getGoalType() != null ? goal.getGoalType() : GoalType.MILESTONE)
+                .targetValue(goal.getTargetValue() != null ? goal.getTargetValue() : BigDecimal.ZERO)
+                .currentValue(goal.getCurrentValue() != null ? goal.getCurrentValue() : BigDecimal.ZERO)
+                .unit(goal.getUnit() != null ? goal.getUnit() : "")
+                .totalMilestones(milestones.size())
+                .completedMilestones((int) milestones.stream().filter(m -> m.getStatus() == MilestoneStatus.COMPLETED).count())
                 .progressPercentage(pct)
                 .linkedTasksCount(tasks.size())
                 .completedTasksCount((int) completedTasks)
@@ -283,11 +364,13 @@ public class GoalService {
         if (!allGoals.isEmpty()) {
             double sumPct = 0.0;
             for (Goal g : allGoals) {
-                long totalM = goalMilestoneRepository.countByGoalIdAndUserId(g.getId(), userId);
-                long compM = goalMilestoneRepository.countByGoalIdAndUserIdAndStatus(g.getId(), userId, MilestoneStatus.COMPLETED);
-                if (totalM > 0) {
-                    sumPct += ((double) compM / totalM) * 100.0;
-                }
+                List<GoalMilestone> mList = g.getGoalType() == GoalType.MILESTONE
+                        ? goalMilestoneRepository.findByGoalIdAndUserIdOrderByDisplayOrderAscCreatedAtAsc(g.getId(), userId)
+                        : Collections.emptyList();
+                List<Task> tList = g.getGoalType() == GoalType.TASK_BASED
+                        ? taskRepository.findByGoalIdAndUserId(g.getId(), userId)
+                        : Collections.emptyList();
+                sumPct += calculateProgress(g, mList, tList);
             }
             avgProgress = Math.round((sumPct / allGoals.size()) * 10.0) / 10.0;
         }
@@ -303,6 +386,40 @@ public class GoalService {
                 .build();
     }
 
+    public double calculateProgress(Goal goal, List<GoalMilestone> milestones, List<Task> tasks) {
+        GoalType type = goal.getGoalType() != null ? goal.getGoalType() : GoalType.MILESTONE;
+        switch (type) {
+            case NUMERIC:
+                if (goal.getTargetValue() != null && goal.getTargetValue().compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal current = goal.getCurrentValue() != null ? goal.getCurrentValue() : BigDecimal.ZERO;
+                    double pct = current.divide(goal.getTargetValue(), 4, RoundingMode.HALF_UP).doubleValue() * 100.0;
+                    return Math.min(100.0, Math.max(0.0, Math.round(pct * 10.0) / 10.0));
+                }
+                return 0.0;
+            case PERCENTAGE:
+                if (goal.getCurrentValue() != null) {
+                    double pct = goal.getCurrentValue().doubleValue();
+                    return Math.min(100.0, Math.max(0.0, Math.round(pct * 10.0) / 10.0));
+                }
+                return 0.0;
+            case TASK_BASED:
+                if (tasks != null && !tasks.isEmpty()) {
+                    long completed = tasks.stream().filter(t -> t.getStatus() == TaskStatus.COMPLETED).count();
+                    double pct = ((double) completed / tasks.size()) * 100.0;
+                    return Math.round(pct * 10.0) / 10.0;
+                }
+                return 0.0;
+            case MILESTONE:
+            default:
+                if (milestones != null && !milestones.isEmpty()) {
+                    long completed = milestones.stream().filter(m -> m.getStatus() == MilestoneStatus.COMPLETED).count();
+                    double pct = ((double) completed / milestones.size()) * 100.0;
+                    return Math.round(pct * 10.0) / 10.0;
+                }
+                return 0.0;
+        }
+    }
+
     private void validateDates(LocalDate start, LocalDate target) {
         if (start != null && target != null && target.isBefore(start)) {
             throw new BusinessException("Ngày mục tiêu hoàn thành không được trước ngày bắt đầu", HttpStatus.BAD_REQUEST);
@@ -316,12 +433,19 @@ public class GoalService {
                 && goal.getStatus() != GoalStatus.COMPLETED
                 && goal.getStatus() != GoalStatus.CANCELLED;
 
-        int totalM = milestones.size();
-        int compM = (int) milestones.stream().filter(m -> m.getStatus() == MilestoneStatus.COMPLETED).count();
-        double pct = totalM > 0 ? ((double) compM / totalM) * 100.0 : 0.0;
-        pct = Math.round(pct * 10.0) / 10.0;
+        int totalM = milestones != null ? milestones.size() : 0;
+        int compM = milestones != null ? (int) milestones.stream().filter(m -> m.getStatus() == MilestoneStatus.COMPLETED).count() : 0;
 
-        List<MilestoneResponse> milestoneResponses = milestones.stream().map(this::toMilestoneResponse).toList();
+        List<Task> entityTasks = null;
+        if (goal.getGoalType() == GoalType.TASK_BASED) {
+            entityTasks = taskRepository.findByGoalIdAndUserId(goal.getId(), goal.getUserId());
+        }
+
+        double pct = calculateProgress(goal, milestones, entityTasks);
+
+        List<MilestoneResponse> milestoneResponses = milestones != null
+                ? milestones.stream().map(this::toMilestoneResponse).toList()
+                : Collections.emptyList();
 
         return GoalResponse.builder()
                 .id(goal.getId())
@@ -331,6 +455,10 @@ public class GoalService {
                 .category(goal.getCategory())
                 .priority(goal.getPriority())
                 .status(goal.getStatus())
+                .goalType(goal.getGoalType() != null ? goal.getGoalType() : GoalType.MILESTONE)
+                .targetValue(goal.getTargetValue() != null ? goal.getTargetValue() : BigDecimal.ZERO)
+                .currentValue(goal.getCurrentValue() != null ? goal.getCurrentValue() : BigDecimal.ZERO)
+                .unit(goal.getUnit() != null ? goal.getUnit() : "")
                 .startDate(goal.getStartDate())
                 .targetDate(goal.getTargetDate())
                 .completedAt(goal.getCompletedAt())

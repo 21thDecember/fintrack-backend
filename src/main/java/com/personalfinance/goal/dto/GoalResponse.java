@@ -3,6 +3,7 @@ package com.personalfinance.goal.dto;
 import com.personalfinance.goal.entity.GoalCategory;
 import com.personalfinance.goal.entity.GoalPriority;
 import com.personalfinance.goal.entity.GoalStatus;
+import com.personalfinance.goal.entity.GoalType;
 import com.personalfinance.habit.dto.HabitResponse;
 import com.personalfinance.task.dto.TaskResponse;
 import lombok.AllArgsConstructor;
@@ -10,6 +11,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -28,6 +30,10 @@ public class GoalResponse {
     private GoalCategory category;
     private GoalPriority priority;
     private GoalStatus status;
+    private GoalType goalType;
+    private BigDecimal targetValue;
+    private BigDecimal currentValue;
+    private String unit;
     private LocalDate startDate;
     private LocalDate targetDate;
     private OffsetDateTime completedAt;

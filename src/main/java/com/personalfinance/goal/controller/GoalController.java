@@ -2,6 +2,7 @@ package com.personalfinance.goal.controller;
 
 import com.personalfinance.common.response.ApiResponse;
 import com.personalfinance.goal.dto.GoalProgressResponse;
+import com.personalfinance.goal.dto.GoalProgressUpdateRequest;
 import com.personalfinance.goal.dto.GoalRequest;
 import com.personalfinance.goal.dto.GoalResponse;
 import com.personalfinance.goal.dto.GoalStatisticsResponse;
@@ -16,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -99,6 +101,14 @@ public class GoalController {
     @GetMapping("/{id}/progress")
     public ApiResponse<GoalProgressResponse> getProgress(@PathVariable UUID id) {
         return ApiResponse.success(goalService.getProgress(id));
+    }
+
+    @PatchMapping("/{id}/progress")
+    public ApiResponse<GoalResponse> updateGoalProgress(
+            @PathVariable UUID id,
+            @RequestBody GoalProgressUpdateRequest request
+    ) {
+        return ApiResponse.success("Cập nhật tiến trình thành công", goalService.updateGoalProgress(id, request));
     }
 
     @GetMapping("/statistics")
