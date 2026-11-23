@@ -1,6 +1,8 @@
 package com.personalfinance.security;
 
+import com.personalfinance.common.entity.AppSetting;
 import com.personalfinance.common.exception.BusinessException;
+import com.personalfinance.common.repository.AppSettingRepository;
 import com.personalfinance.common.response.ApiResponse;
 import com.personalfinance.security.dto.AuthResponse;
 import com.personalfinance.security.dto.LoginRequest;
@@ -26,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final JwtUtil jwtUtil;
+    private final AppSettingRepository appSettingRepository;
 
     @Value("${app.security.admin-username:admin}")
     private String adminUsername;
@@ -33,15 +36,27 @@ public class AuthController {
     @Value("${app.security.admin-password:admin123}")
     private String adminPassword;
 
+    @Value("${app.security.admin-fullname:Phạm Huỳnh Văn Phát}")
+    private String adminFullName;
+
+    private String getEffectiveFullName() {
+        return appSettingRepository.findBySettingKey("ADMIN_FULLNAME")
+                .map(AppSetting::getSettingValue)
+                .filter(name -> !name.trim().isEmpty())
+                .orElse(adminFullName);
+    }
+
     @PostMapping("/login")
     public ApiResponse<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         if (!adminUsername.equals(request.getUsername()) || !adminPassword.equals(request.getPassword())) {
             throw new BusinessException("Tên đăng nhập hoặc mật khẩu không chính xác", HttpStatus.UNAUTHORIZED);
         }
 
+        String fullName = getEffectiveFullName();
         String token = jwtUtil.generateToken(request.getUsername());
         UserResponse userResponse = UserResponse.builder()
                 .username(request.getUsername())
+                .fullName(fullName)
                 .role("ROLE_ADMIN")
                 .build();
 
@@ -61,8 +76,10 @@ public class AuthController {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String username = authentication != null ? authentication.getName() : adminUsername;
 
+        String fullName = getEffectiveFullName();
         UserResponse userResponse = UserResponse.builder()
                 .username(username)
+                .fullName(fullName)
                 .role("ROLE_ADMIN")
                 .build();
 
