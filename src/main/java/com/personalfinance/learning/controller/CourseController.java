@@ -83,6 +83,14 @@ public class CourseController {
         return ApiResponse.success("Cập nhật tiến độ thành công", courseService.updateCourseProgress(id, request));
     }
 
+    @PatchMapping("/{id}/notes")
+    public ApiResponse<CourseResponse> updateCourseNotes(
+            @PathVariable UUID id,
+            @RequestBody com.personalfinance.learning.dto.UpdateNotesRequest request
+    ) {
+        return ApiResponse.success("Cập nhật ghi chú khóa học thành công", courseService.updateCourseNotes(id, request.getNotes()));
+    }
+
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteCourse(@PathVariable UUID id) {

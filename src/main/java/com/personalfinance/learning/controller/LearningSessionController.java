@@ -15,6 +15,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -69,6 +70,14 @@ public class LearningSessionController {
             @Valid @RequestBody LearningSessionRequest request
     ) {
         return ApiResponse.success("Cập nhật phiên học thành công", sessionService.updateSession(id, request));
+    }
+
+    @PatchMapping("/{id}/notes")
+    public ApiResponse<LearningSessionResponse> updateSessionNotes(
+            @PathVariable UUID id,
+            @RequestBody com.personalfinance.learning.dto.UpdateNotesRequest request
+    ) {
+        return ApiResponse.success("Cập nhật ghi chú phiên học thành công", sessionService.updateSessionNotes(id, request.getNotes()));
     }
 
     @DeleteMapping("/{id}")

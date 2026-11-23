@@ -132,6 +132,17 @@ public class CourseService {
     }
 
     @Transactional
+    public CourseResponse updateCourseNotes(UUID id, String notes) {
+        UUID userId = SecurityUtils.getCurrentUserId();
+        Course course = courseRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy khóa học"));
+
+        course.setNotes(notes);
+        course = courseRepository.save(course);
+        return toResponse(course);
+    }
+
+    @Transactional
     public void deleteCourse(UUID id) {
         UUID userId = SecurityUtils.getCurrentUserId();
         Course course = courseRepository.findByIdAndUserId(id, userId)

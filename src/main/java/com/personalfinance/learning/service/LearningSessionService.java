@@ -97,6 +97,17 @@ public class LearningSessionService {
     }
 
     @Transactional
+    public LearningSessionResponse updateSessionNotes(UUID id, String notes) {
+        UUID userId = SecurityUtils.getCurrentUserId();
+        LearningSession session = sessionRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phiên học"));
+
+        session.setNotes(notes);
+        session = sessionRepository.save(session);
+        return toResponse(session);
+    }
+
+    @Transactional
     public void deleteSession(UUID id) {
         UUID userId = SecurityUtils.getCurrentUserId();
         LearningSession session = sessionRepository.findByIdAndUserId(id, userId)

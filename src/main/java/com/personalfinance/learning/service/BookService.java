@@ -127,6 +127,17 @@ public class BookService {
     }
 
     @Transactional
+    public BookResponse updateBookNotes(UUID id, String notes) {
+        UUID userId = SecurityUtils.getCurrentUserId();
+        Book book = bookRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy sách"));
+
+        book.setNotes(notes);
+        book = bookRepository.save(book);
+        return toResponse(book);
+    }
+
+    @Transactional
     public void deleteBook(UUID id) {
         UUID userId = SecurityUtils.getCurrentUserId();
         Book book = bookRepository.findByIdAndUserId(id, userId)

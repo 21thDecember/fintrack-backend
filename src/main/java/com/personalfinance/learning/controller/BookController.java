@@ -83,6 +83,14 @@ public class BookController {
         return ApiResponse.success("Cập nhật tiến độ đọc thành công", bookService.updateReadingProgress(id, request));
     }
 
+    @PatchMapping("/{id}/notes")
+    public ApiResponse<BookResponse> updateBookNotes(
+            @PathVariable UUID id,
+            @RequestBody com.personalfinance.learning.dto.UpdateNotesRequest request
+    ) {
+        return ApiResponse.success("Cập nhật đúc kết sách thành công", bookService.updateBookNotes(id, request.getNotes()));
+    }
+
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteBook(@PathVariable UUID id) {
