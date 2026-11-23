@@ -8,6 +8,7 @@ import com.personalfinance.transaction.dto.TransactionResponse;
 import com.personalfinance.transaction.dto.TransferRequest;
 import com.personalfinance.transaction.dto.TransferResponse;
 import com.personalfinance.transaction.dto.UpdateClassificationRequest;
+import com.personalfinance.transaction.dto.UpdateNoteRequest;
 import com.personalfinance.transaction.dto.UpdateTransactionRequest;
 import com.personalfinance.transaction.dto.VoidTransactionRequest;
 import com.personalfinance.transaction.service.TransactionService;
@@ -82,6 +83,15 @@ public class TransactionController {
             @RequestBody UpdateClassificationRequest request) {
         TransactionResponse response = transactionService.updateClassification(id, request.getCategoryId(), request.getClassificationStatus());
         return ApiResponse.success("Phân loại giao dịch thành công", response);
+    }
+
+    @PatchMapping("/{id}/note")
+    public ApiResponse<TransactionResponse> updateNote(
+            @PathVariable UUID id,
+            @RequestBody(required = false) UpdateNoteRequest request) {
+        String note = request != null ? request.getNote() : null;
+        TransactionResponse response = transactionService.updateNote(id, note);
+        return ApiResponse.success("Cập nhật ghi chú thành công", response);
     }
 
     @PostMapping("/{id}/void")

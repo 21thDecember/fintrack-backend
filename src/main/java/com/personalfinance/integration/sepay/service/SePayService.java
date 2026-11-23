@@ -106,9 +106,7 @@ public class SePayService {
                 .description(payload.getDescription() != null && !payload.getDescription().trim().isEmpty()
                         ? payload.getDescription().trim()
                         : payload.getContent())
-                .note(String.format("Cổng: %s | Tích lũy: %s",
-                        payload.getGateway(),
-                        payload.getAccumulated() != null ? payload.getAccumulated().toString() : "N/A"))
+                .note(null)
                 .transactionDate(txDate)
                 .classificationStatus(classificationStatus)
                 .status(TransactionStatus.POSTED)

@@ -367,11 +367,25 @@ public class TransactionService {
             tx.setDescription(request.getDescription().trim());
         }
         if (request.getNote() != null) {
-            tx.setNote(request.getNote().trim());
+            String trimmed = request.getNote().trim();
+            tx.setNote(trimmed.isEmpty() ? null : trimmed);
         }
 
         Transaction updated = transactionRepository.save(tx);
         log.info("Đã cập nhật giao dịch ID: {}", updated.getId());
+        return getTransactionById(updated.getId());
+    }
+
+    /**
+     * Cập nhật nhanh ghi chú thêm của giao dịch
+     */
+    @Transactional
+    public TransactionResponse updateNote(UUID id, String note) {
+        Transaction tx = transactionRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Giao dịch", id));
+        tx.setNote(note != null && !note.trim().isEmpty() ? note.trim() : null);
+        Transaction updated = transactionRepository.save(tx);
+        log.info("Đã cập nhật ghi chú giao dịch ID: {}", updated.getId());
         return getTransactionById(updated.getId());
     }
 
