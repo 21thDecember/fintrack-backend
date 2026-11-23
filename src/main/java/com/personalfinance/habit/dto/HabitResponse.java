@@ -28,7 +28,8 @@ public class HabitResponse {
     private List<String> activeDays;
     private LocalDate startDate;
     private LocalDate endDate;
-    private boolean isActive;
+    @com.fasterxml.jackson.annotation.JsonProperty("isActive")
+    private Boolean isActive;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 

@@ -263,8 +263,8 @@ public class HabitService {
                     if (!Boolean.TRUE.equals(h.getIsActive())) return false;
                     if (h.getStartDate().isAfter(date)) return false;
                     if (h.getEndDate() != null && h.getEndDate().isBefore(date)) return false;
-                    List<String> days = h.getActiveDays() != null ? h.getActiveDays() : ALL_DAYS;
-                    return h.getFrequency() == HabitFrequency.WEEKLY || days.contains(dayOfWeek);
+                    List<String> days = (h.getActiveDays() != null && !h.getActiveDays().isEmpty()) ? h.getActiveDays() : ALL_DAYS;
+                    return days.contains(dayOfWeek);
                 })
                 .toList();
 
